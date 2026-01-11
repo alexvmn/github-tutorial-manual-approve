@@ -1,11 +1,9 @@
-name: CI/CD Pipeline
+name: Release (tag) -> Deploy TEST -> PROD
 
 on:
-  pull_request:
-    branches: [ "main" ]
   push:
-    branches: [ "main" ]
-  workflow_dispatch:
+    tags:
+      - "v*"
 
 permissions:
   contents: read
@@ -36,21 +34,26 @@ jobs:
         run: uv run pytest -q
 
   build:
-    name: Build artifact
+    name: Build artifact (from tag commit)
     runs-on: ubuntu-latest
     needs: ci
-    if: github.event_name != 'pull_request'
     outputs:
       artifact_name: ${{ steps.meta.outputs.artifact_name }}
+      git_sha: ${{ steps.meta.outputs.git_sha }}
+      tag_name: ${{ steps.meta.outputs.tag_name }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Set build metadata
         id: meta
         run: |
+          echo "git_sha=${GITHUB_SHA}" >> $GITHUB_OUTPUT
+          echo "tag_name=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+          echo "artifact_name=app-${GITHUB_SHA}.zip" >> $GITHUB_OUTPUT
+
           echo "GIT_SHA=${GITHUB_SHA}" >> $GITHUB_ENV
           echo "BUILT_AT_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
-          echo "artifact_name=app-${GITHUB_SHA}.zip" >> $GITHUB_OUTPUT
+          echo "RELEASE_TAG=${GITHUB_REF_NAME}" >> $GITHUB_ENV
 
       - name: Create build folder
         run: |
@@ -58,6 +61,7 @@ jobs:
           cp -r app build/app
           printf "%s\n" "${GIT_SHA}" > build/GIT_SHA.txt
           printf "%s\n" "${BUILT_AT_UTC}" > build/BUILT_AT_UTC.txt
+          printf "%s\n" "${RELEASE_TAG}" > build/RELEASE_TAG.txt
 
       - name: Zip artifact
         run: |
@@ -67,40 +71,23 @@ jobs:
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: build
+          name: release_build
           path: ${{ steps.meta.outputs.artifact_name }}
-
-  deploy_dev:
-    name: Deploy to DEV
-    runs-on: ubuntu-latest
-    needs: build
-    environment: DEV
-    steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: build
-
-      - name: Simulated deploy (DEV)
-        run: |
-          echo "Deploying to DEV..."
-          ls -lah
-          echo "OK"
 
   deploy_test:
     name: Deploy to TEST
     runs-on: ubuntu-latest
-    needs: deploy_dev
+    needs: build
     environment: TEST
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
-          name: build
+          name: release_build
 
       - name: Simulated deploy (TEST)
         run: |
-          echo "Deploying to TEST..."
+          echo "Deploying tag ${{ needs.build.outputs.tag_name }} to TEST..."
           ls -lah
           echo "OK"
 
@@ -113,7 +100,7 @@ jobs:
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
-          name: build
+          name: release_build
 
       - name: Simulated deploy (PROD)
         run: |
