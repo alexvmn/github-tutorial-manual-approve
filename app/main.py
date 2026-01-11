@@ -8,6 +8,7 @@ def build_info() -> dict:
         "git_sha": os.getenv("GIT_SHA", "unknown"),
         "built_at_utc": os.getenv("BUILT_AT_UTC", "unknown"),
         "now_utc": datetime.now(timezone.utc).isoformat(),
+        "team": "data-engineering",
     }
 
 def main() -> None:
